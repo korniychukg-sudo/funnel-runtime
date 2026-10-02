@@ -1,22 +1,20 @@
-import { useEffect, useRef, type Ref } from 'react';
+import { useEffect, useRef, useState, type Ref } from 'react';
 import type { SessionState } from '../../shared/api';
-import { isInteractive } from '../../shared/steps';
-import { progressFor } from '../../shared/engine';
 import { InfoStep } from './InfoStep';
-import { ProgressHeader, type QuestionProgress } from './ProgressHeader';
+import { ProgressHeader } from './ProgressHeader';
+import { questionProgress, type DraftAnswer } from './progress';
 import { QuestionStep } from './QuestionStep';
 import { ResultStep } from './ResultStep';
 import type { FunnelSession, FunnelView } from './useFunnelSession';
 
-function questionProgress(state: SessionState): QuestionProgress | null {
-  if (!isInteractive(state.funnel.steps[state.currentStepId])) return null;
-  const { index, count } = progressFor(state.funnel, state.answers, state.currentStepId);
-  return index === null ? null : { index, count };
-}
+type StepBodyProps = {
+  session: FunnelSession;
+  state: SessionState;
+  headingRef: Ref<HTMLHeadingElement>;
+  onDraftChange: (draft: DraftAnswer) => void;
+};
 
-type StepBodyProps = { session: FunnelSession; state: SessionState; headingRef: Ref<HTMLHeadingElement> };
-
-function StepBody({ session, state, headingRef }: StepBodyProps) {
+function StepBody({ session, state, headingRef, onDraftChange }: StepBodyProps) {
   const step = state.funnel.steps[state.currentStepId];
   switch (step.type) {
     case 'info':
@@ -33,6 +31,7 @@ function StepBody({ session, state, headingRef }: StepBodyProps) {
       return (
         <ResultStep
           step={step}
+          sessionId={state.session.id}
           result={state.result}
           failed={session.resultFailed}
           error={session.stepError}
@@ -51,6 +50,7 @@ function StepBody({ session, state, headingRef }: StepBodyProps) {
           error={session.stepError}
           onSubmit={session.submit}
           onEdit={session.clearStepError}
+          onDraftChange={onDraftChange}
         />
       );
   }
@@ -58,6 +58,7 @@ function StepBody({ session, state, headingRef }: StepBodyProps) {
 
 export function StepView({ session, view }: { session: FunnelSession; view: FunnelView }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const [draft, setDraft] = useState<{ seq: number; value: DraftAnswer } | null>(null);
 
   useEffect(() => {
     if (view.seq === 1) return;
@@ -70,11 +71,16 @@ export function StepView({ session, view }: { session: FunnelSession; view: Funn
       <ProgressHeader
         canGoBack={session.canGoBack}
         busy={session.busy}
-        progress={questionProgress(view.state)}
+        progress={questionProgress(view.state, draft?.seq === view.seq ? draft.value : undefined)}
         onBack={session.goBack}
       />
       <div key={view.seq} className="step-enter">
-        <StepBody session={session} state={view.state} headingRef={headingRef} />
+        <StepBody
+          session={session}
+          state={view.state}
+          headingRef={headingRef}
+          onDraftChange={(value) => setDraft({ seq: view.seq, value })}
+        />
       </div>
     </article>
   );

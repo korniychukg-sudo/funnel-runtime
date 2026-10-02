@@ -205,6 +205,24 @@
   font-variant-numeric: tabular-nums;
 }
 
+.event-counts {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.event-counts caption {
+  margin-bottom: 8px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.event-counts tbody th {
+  font-weight: 400;
+}
+
 .how-calculated summary {
   font-weight: 600;
   cursor: pointer;

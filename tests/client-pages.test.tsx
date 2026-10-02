@@ -18,7 +18,9 @@ import { ActivationLog } from '../src/client/pages/ActivationLog';
 import { ActiveVersionCard } from '../src/client/pages/ActiveVersionCard';
 import { DashboardFilters } from '../src/client/pages/DashboardFilters';
 import { DashboardReport } from '../src/client/pages/DashboardReport';
+import { DataQualityPanel } from '../src/client/pages/DataQualityPanel';
 import { ErrorNotice } from '../src/client/pages/ErrorNotice';
+import { ExperimentCard } from '../src/client/pages/ExperimentCard';
 import { describeExperiment } from '../src/client/pages/experimentSummary';
 import {
   formatCount,
@@ -134,6 +136,8 @@ describe('adminApi', () => {
     expect(search).toBe('utm_campaign=spring+launch&version=3&run_id=run-42&include_overrides=1');
     expect(parseAnalyticsSearch(`?${search}`)).toEqual(query);
     expect(parseAnalyticsSearch('?version=abc&include_overrides=0&utm_campaign=')).toEqual({});
+    expect(analyticsSearchParams({ utmCampaign: '(none)' }).toString()).toBe('utm_campaign=%28none%29');
+    expect(parseAnalyticsSearch('?utm_campaign=%28none%29')).toEqual({ utmCampaign: '(none)' });
 
     const calls = mockFetch(() => json(200, analytics));
     await fetchAnalytics({});
@@ -182,7 +186,9 @@ describe('describeExperiment', () => {
     expect(describeExperiment({ ...base, absoluteDiff: 0, pValue: 1, significant: false })).toMatch(
       /^A and B convert equally so far/,
     );
-    expect(describeExperiment({ ...base, pValue: null, significant: null })).toMatch(/not enough data for a significance test/);
+    expect(describeExperiment({ ...base, pValue: null, significant: null })).toBe(
+      'B converts 3.3 pp better than A (15.0% vs 18.3% started → CTA); there is not enough data yet for a significance test.',
+    );
     expect(describeExperiment({ ...base, absoluteDiff: null })).toMatch(/Both variants need started sessions/);
     expect(describeExperiment(analytics.experiments[1])).toMatch(/Only one variant has sessions/);
   });
@@ -201,7 +207,7 @@ describe('dashboard rendering', () => {
     expect(body).toContain('Relative lift +22.2%');
     expect(body).toContain('p-value 0.112');
     expect(body).toContain('12 forced-variant sessions excluded as QA traffic');
-    expect(body).toContain('not enough data');
+    expect(body).toContain('not enough data yet');
     expect(body).toContain('conditional');
     expect(body).toContain('Result → CTA');
     expect(body).toContain('v1 · variant A');
@@ -213,8 +219,31 @@ describe('dashboard rendering', () => {
     expect(body).toContain('balanced 60 25.0%');
     expect(body).toContain('Duplicates dropped 321');
     expect(body).toContain('in 1 session.');
+    expect(body).toContain('Events by name, in this view');
+    expect(body).toContain('cta_clicked 251 240');
+    expect(body).toContain('recommendation_expanded 41 38');
+    expect(body).toContain('step_viewed 10,553 1,500');
+    expect(body).toContain('at least 5 expected CTA clicks and 5 expected non-clicks in each variant');
+    expect(body).toContain('"(no campaign)" selects sessions that arrived without a utm_campaign');
     expect(body).toContain('How these numbers are calculated');
     expect(html).toContain('<details');
+  });
+
+  it('says not enough data yet when the sample is too small for the z-test', () => {
+    const small: ExperimentComparison = { ...analytics.experiments[0], pValue: null, significant: null };
+    const body = text(renderToStaticMarkup(<ExperimentCard experiment={small} includeOverrides={false} />));
+    expect(body).toContain('not enough data yet');
+    expect(body).toContain('B − A +3.3 pp');
+    expect(body).toContain('p-value —');
+    expect(body).toContain('not enough data yet for a significance test');
+    expect(body).not.toContain('not significant');
+  });
+
+  it('shows a note instead of the events table when no events are stored', () => {
+    const quality = { ...analytics.dataQuality, eventsStored: 0, events: [] };
+    const html = renderToStaticMarkup(<DataQualityPanel quality={quality} />);
+    expect(html).not.toContain('<table');
+    expect(text(html)).toContain('No events stored for this view.');
   });
 
   it('collapses a funnel with no sessions into one line', () => {
@@ -255,6 +284,35 @@ describe('dashboard rendering', () => {
     expect(html).toContain('value="r1"');
     expect(html).toContain('checked=""');
     expect(text(html)).toContain('Reset filters');
+  });
+
+  it('labels the no-campaign option and keeps it selectable from the URL', () => {
+    const listed = renderToStaticMarkup(
+      <DashboardFilters
+        query={{}}
+        campaigns={analytics.available.campaigns}
+        versions={[]}
+        generatedAt={null}
+        loading={false}
+        onChange={noop}
+        onRefresh={noop}
+      />,
+    );
+    expect(listed).toContain('<option value="(none)">(no campaign)</option>');
+    expect(listed.indexOf('spring_launch')).toBeLessThan(listed.indexOf('(no campaign)'));
+
+    const fromUrl = renderToStaticMarkup(
+      <DashboardFilters
+        query={{ utmCampaign: '(none)' }}
+        campaigns={[]}
+        versions={[]}
+        generatedAt={null}
+        loading={false}
+        onChange={noop}
+        onRefresh={noop}
+      />,
+    );
+    expect(fromUrl).toContain('<option value="(none)" selected="">(no campaign)</option>');
   });
 
   it('renders the dashboard page shell with the active nav link', () => {

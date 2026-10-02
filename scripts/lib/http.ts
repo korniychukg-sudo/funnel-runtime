@@ -47,7 +47,13 @@ export function createClient(baseUrl: string, adminToken?: string) {
     sendEvents: (events: IncomingEvent[]) => request<EventsResponse>('POST', '/api/events', { events }),
     analytics: (query: Record<string, string>) =>
       request<unknown>('GET', `/api/analytics?${new URLSearchParams(query).toString()}`),
-    adminOverview: () => request<{ activeVersion: number | null; fixtures: string[] }>('GET', '/api/admin/overview', undefined, true),
+    adminOverview: () =>
+      request<{ activeVersion: number | null; fixtures: string[]; versions: Array<{ version: number }> }>(
+        'GET',
+        '/api/admin/overview',
+        undefined,
+        true,
+      ),
     importFixture: (file: string) => request<{ version: number }>('POST', `/api/admin/fixtures/${encodeURIComponent(file)}/import`, undefined, true),
     publish: (version: number) => request<unknown>('POST', `/api/admin/versions/${version}/publish`, undefined, true),
     rollback: () => request<{ activeVersion: number | null }>('POST', '/api/admin/rollback', undefined, true),

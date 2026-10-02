@@ -218,27 +218,105 @@ describe('Outbox', () => {
     expect(clock.pendingDelays()).toEqual([2_000]);
   });
 
-  it('never sends the same batch twice at the same time', async () => {
+  it('keeps at most one regular batch in flight', async () => {
     const { clock, network, outbox } = setup(['hang']);
     outbox.enqueue(event(1));
     await clock.advance(1_000);
 
     void outbox.flush();
-    void outbox.flush({ keepalive: true });
     outbox.enqueue(event(2));
     await clock.advance(1_000);
 
     expect(network.calls).toHaveLength(1);
   });
 
+  it('sends regular batches with keepalive while the body stays under 60 KB', async () => {
+    const { clock, network, outbox } = setup();
+    outbox.enqueue(event(1));
+    await clock.advance(1_000);
+    expect(network.calls[0].init.keepalive).toBe(true);
+
+    outbox.enqueue({ ...event(2), properties: { note: 'x'.repeat(61_000) } });
+    await clock.advance(1_000);
+    expect(network.calls[1].init.keepalive).toBe(false);
+    expect(outbox.pending).toEqual([]);
+  });
+
   it('uses keepalive for the page-exit flush', async () => {
-    const { network, outbox } = setup();
+    const { storage, network, outbox } = setup();
     outbox.enqueue(event(1));
 
-    await outbox.flush({ keepalive: true });
+    await outbox.flushOnExit();
 
     expect(network.calls).toHaveLength(1);
     expect(network.calls[0].init.keepalive).toBe(true);
     expect(outbox.pending).toHaveLength(0);
+    expect(storage.storedIds()).toEqual([]);
+  });
+
+  it('pagehide while a batch is in flight sends the remaining events with keepalive', async () => {
+    const { storage, clock, network, outbox } = setup(['hang', 200]);
+    outbox.enqueue(event(1));
+    await clock.advance(1_000);
+    outbox.enqueue(event(2));
+
+    await outbox.flushOnExit();
+
+    expect(network.calls).toHaveLength(2);
+    expect(network.calls[1].ids).toEqual(['event-1', 'event-2']);
+    expect(network.calls[1].init.keepalive).toBe(true);
+    expect(outbox.pending).toEqual([]);
+    expect(storage.storedIds()).toEqual([]);
+
+    await clock.advance(11_000);
+    expect(network.calls).toHaveLength(2);
+
+    outbox.enqueue(event(3));
+    await clock.advance(1_000);
+    expect(network.calls.at(-1)?.ids).toEqual(['event-3']);
+    expect(outbox.pending).toEqual([]);
+  });
+
+  it('sends at most 50 events on page exit and keeps them until a 200', async () => {
+    const { storage, network, outbox } = setup([503]);
+    for (let n = 1; n <= 60; n++) outbox.enqueue(event(n));
+
+    void outbox.flushOnExit();
+    await outbox.flushOnExit();
+
+    expect(network.calls).toHaveLength(1);
+    expect(network.calls[0].ids).toHaveLength(50);
+    expect(network.calls[0].ids[0]).toBe('event-1');
+    expect(outbox.pending).toHaveLength(60);
+    expect(storage.storedIds()).toHaveLength(60);
+  });
+
+  it('keeps events of another tab that shares the same storage', async () => {
+    const storage = new MemoryStorage();
+    const clockA = new FakeClock();
+    const clockB = new FakeClock();
+    const networkA = fakeFetch([]);
+    const networkB = fakeFetch([]);
+    const tabA = new Outbox({ storage, fetch: networkA.fetch, timers: clockA });
+    const tabB = new Outbox({ storage, fetch: networkB.fetch, timers: clockB });
+
+    tabA.enqueue(event(1));
+    tabB.enqueue(event(2));
+    expect(storage.storedIds()).toEqual(['event-1', 'event-2']);
+
+    await clockA.advance(1_000);
+    expect(networkA.calls.map((call) => call.ids)).toEqual([['event-1']]);
+    expect(storage.storedIds()).toEqual(['event-2']);
+
+    tabA.enqueue(event(3));
+    expect(storage.storedIds()).toEqual(['event-2', 'event-3']);
+
+    await clockB.advance(1_000);
+    expect(networkB.calls.map((call) => call.ids)).toEqual([['event-2']]);
+    expect(storage.storedIds()).toEqual(['event-3']);
+
+    await clockA.advance(1_000);
+    expect(networkA.calls.map((call) => call.ids)).toEqual([['event-1'], ['event-3']]);
+    expect(storage.storedIds()).toEqual([]);
   });
 });

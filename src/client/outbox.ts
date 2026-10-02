@@ -24,19 +24,30 @@ const FLUSH_DELAY_MS = 1_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const MIN_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
+const KEEPALIVE_MAX_BYTES = 60_000;
 
 const browserTimers: OutboxTimers = {
   setTimeout: (callback, ms) => setTimeout(callback, ms),
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
+function serialize(batch: IncomingEvent[]): string {
+  return JSON.stringify({ events: batch });
+}
+
+function byteLength(text: string): number {
+  return new TextEncoder().encode(text).byteLength;
+}
+
 export class Outbox {
   private readonly storage: OutboxStorage;
   private readonly fetch: OutboxFetch;
   private readonly timers: OutboxTimers;
   private readonly endpoint: string;
+  private readonly delivered = new Set<string>();
   private queue: IncomingEvent[];
   private sending: Promise<void> | null = null;
+  private exiting: Promise<void> | null = null;
   private timer: unknown = null;
   private failures = 0;
 
@@ -59,23 +70,38 @@ export class Outbox {
     if (this.failures === 0) this.schedule(FLUSH_DELAY_MS);
   }
 
-  flush(options: { keepalive?: boolean } = {}): Promise<void> {
+  flush(): Promise<void> {
     if (this.sending) return this.sending;
-    if (this.queue.length === 0) return Promise.resolve();
+    if (this.queue.length === 0) {
+      this.failures = 0;
+      return Promise.resolve();
+    }
     this.cancelTimer();
     const batch = this.queue.slice(0, BATCH_SIZE);
-    this.sending = this.deliver(batch, options.keepalive ?? false).finally(() => {
+    this.sending = this.deliver(batch).finally(() => {
       this.sending = null;
     });
     return this.sending;
   }
 
-  private async deliver(batch: IncomingEvent[], keepalive: boolean): Promise<void> {
-    if (await this.post(batch, keepalive)) {
-      const sent = new Set(batch.map((event) => event.event_id));
-      this.queue = this.queue.filter((event) => !sent.has(event.event_id));
-      this.save();
-      this.failures = 0;
+  flushOnExit(): Promise<void> {
+    if (this.exiting) return this.exiting;
+    if (this.queue.length === 0) return Promise.resolve();
+    const batch = this.queue.slice(0, BATCH_SIZE);
+    this.exiting = this.post(serialize(batch), true)
+      .then((ok) => {
+        if (ok) this.markDelivered(batch);
+      })
+      .finally(() => {
+        this.exiting = null;
+      });
+    return this.exiting;
+  }
+
+  private async deliver(batch: IncomingEvent[]): Promise<void> {
+    const body = serialize(batch);
+    if (await this.post(body, byteLength(body) < KEEPALIVE_MAX_BYTES)) {
+      this.markDelivered(batch);
       if (this.queue.length > 0) this.schedule(0);
     } else {
       this.failures += 1;
@@ -83,14 +109,21 @@ export class Outbox {
     }
   }
 
-  private async post(batch: IncomingEvent[], keepalive: boolean): Promise<boolean> {
+  private markDelivered(batch: IncomingEvent[]): void {
+    for (const event of batch) this.delivered.add(event.event_id);
+    this.queue = this.queue.filter((event) => !this.delivered.has(event.event_id));
+    this.failures = 0;
+    this.save();
+  }
+
+  private async post(body: string, keepalive: boolean): Promise<boolean> {
     const controller = new AbortController();
     const timeout = this.timers.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const response = await this.fetch(this.endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ events: batch }),
+        body,
         keepalive,
         signal: controller.signal,
       });
@@ -130,8 +163,11 @@ export class Outbox {
   }
 
   private save(): void {
+    const stored = this.load().filter((event) => !this.delivered.has(event.event_id));
+    const storedIds = new Set(stored.map((event) => event.event_id));
+    const merged = [...stored, ...this.queue.filter((event) => !storedIds.has(event.event_id))];
     try {
-      this.storage.setItem(OUTBOX_KEY, JSON.stringify(this.queue));
+      this.storage.setItem(OUTBOX_KEY, JSON.stringify(merged));
     } catch (error) {
       console.warn('Events are kept in memory only: the outbox could not be saved.', error);
     }
@@ -156,7 +192,7 @@ export function browserStorage(): KeyValueStorage {
 }
 
 function flushOnPageHide(outbox: Outbox): void {
-  const flush = () => void outbox.flush({ keepalive: true });
+  const flush = () => void outbox.flushOnExit();
   window.addEventListener('pagehide', flush);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flush();

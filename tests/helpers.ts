@@ -48,10 +48,18 @@ export function createClock(start = START_TIME): Clock {
   };
 }
 
-export async function createTestApp(options: { adminToken?: string; db?: DatabaseSync } = {}): Promise<TestApp> {
+export async function createTestApp(
+  options: { adminToken?: string; db?: DatabaseSync; staticDir?: string } = {},
+): Promise<TestApp> {
   const db = options.db ?? openDatabase(':memory:');
   const clock = createClock();
-  const app = await buildApp({ db, configsDir: CONFIGS_DIR, now: clock.now, adminToken: options.adminToken });
+  const app = await buildApp({
+    db,
+    configsDir: CONFIGS_DIR,
+    now: clock.now,
+    adminToken: options.adminToken,
+    staticDir: options.staticDir,
+  });
   return { app, db, clock };
 }
 

@@ -1,16 +1,24 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { MAX_EVENTS_PER_BATCH, type EventItemResult, type EventItemStatus, type EventsResponse } from '../../shared/api';
-import { isPlainObject } from '../../shared/merge';
+import type { FunnelConfig, Variant } from '../../shared/config';
+import { deepMerge, isPlainObject } from '../../shared/merge';
 import type { AppContext } from '../app';
 import { transaction } from '../db';
 import { getSession, insertEvent, insertIngestBatch, type SessionRecord, type StoredEvent } from '../store';
 import { HttpError } from './http';
 
 const ONE_MEGABYTE = 1024 * 1024;
+const MAX_PROPERTY_LENGTH = 256;
 
 const STEP_EVENTS = new Set(['step_viewed', 'answer_submitted', 'step_completed', 'back_clicked']);
 const RESULT_EVENTS = new Set(['result_viewed', 'cta_clicked', 'recommendation_expanded']);
+const STEP_TYPE_PROPERTY = new Map([
+  ['step_viewed', 'step_type'],
+  ['answer_submitted', 'answer_kind'],
+]);
+const COUNT_PROPERTIES = new Set(['visible_step_index', 'visible_step_count']);
+const STEP_PROPERTIES = new Set(['next_step_id', 'destination_step_id']);
 
 const batchSchema = z.object({ events: z.array(z.unknown()).max(MAX_EVENTS_PER_BATCH) });
 
@@ -53,6 +61,30 @@ function pickProperties(properties: Record<string, unknown> | null | undefined, 
   return picked;
 }
 
+function isPrimitiveValue(value: unknown): boolean {
+  if (value === null || typeof value === 'boolean') return true;
+  if (typeof value === 'string') return value.length <= MAX_PROPERTY_LENGTH;
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isCountOrNull(value: unknown): boolean {
+  return value === null || (Number.isInteger(value) && (value as number) >= 0);
+}
+
+function hasValidProperties(properties: Record<string, unknown>, config: FunnelConfig, sequence: string[]): boolean {
+  return Object.entries(properties).every(([key, value]) => {
+    if (!isPrimitiveValue(value)) return false;
+    if (COUNT_PROPERTIES.has(key)) return isCountOrNull(value);
+    if (key === 'result_id') return typeof value === 'string' && Object.hasOwn(config.results, value);
+    if (STEP_PROPERTIES.has(key)) return typeof value === 'string' && sequence.includes(value);
+    return true;
+  });
+}
+
+function resolvedStepType(config: FunnelConfig, variant: Variant, stepId: string): string {
+  return deepMerge(config.steps[stepId], variant.stepOverrides[stepId]).type;
+}
+
 function prepareEvent(ctx: AppContext, raw: unknown, serverTs: string): Prepared {
   const parsed = incomingEventSchema.safeParse(raw);
   if (!parsed.success) return reject('invalid_event');
@@ -68,11 +100,19 @@ function prepareEvent(ctx: AppContext, raw: unknown, serverTs: string): Prepared
 
   if (hasContextMismatch(item, session)) return reject('context_mismatch');
 
-  const sequence = config.experiment.variants[session.variant].stepSequence;
+  const variant = config.experiment.variants[session.variant];
+  const sequence = variant.stepSequence;
   const resultStep = sequence[sequence.length - 1];
   const stepId = item.step_id ?? (RESULT_EVENTS.has(item.name) ? resultStep : null);
   if (STEP_EVENTS.has(item.name) && stepId === null) return reject('unknown_step');
   if (stepId !== null && !sequence.includes(stepId)) return reject('unknown_step');
+
+  const properties = pickProperties(item.properties, definition.properties);
+  const stepTypeKey = STEP_TYPE_PROPERTY.get(item.name);
+  if (stepTypeKey && stepId !== null && definition.properties.includes(stepTypeKey)) {
+    properties[stepTypeKey] = resolvedStepType(config, variant, stepId);
+  }
+  if (!hasValidProperties(properties, config, sequence)) return reject('invalid_property');
 
   return {
     ok: true,
@@ -90,7 +130,7 @@ function prepareEvent(ctx: AppContext, raw: unknown, serverTs: string): Prepared
       utmCampaign: session.utmCampaign,
       clientTs: item.client_timestamp,
       serverTs,
-      properties: pickProperties(item.properties, definition.properties),
+      properties,
     },
   };
 }

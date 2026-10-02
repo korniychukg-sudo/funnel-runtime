@@ -138,7 +138,7 @@ export const funnelConfigSchema = z.looseObject({
   releaseNote: z.string().optional(),
   session: z
     .object({
-      ttlHours: z.number().positive().default(72),
+      ttlHours: z.number().positive().max(8760).default(72),
       persistAnswers: z.boolean().default(true),
       pinVersion: z.boolean().default(true),
       pinExperimentVariant: z.boolean().default(true),
@@ -218,11 +218,15 @@ export function checkConfigSemantics(config: FunnelConfig): ConfigIssue[] {
   const add = (path: string, message: string) => issues.push({ path, message });
 
   const answerOwner = new Map<string, string>();
+  const duplicateNames = new Set<string>();
   for (const [key, step] of Object.entries(config.steps)) {
     if (step.id !== key) add(`steps.${key}.id`, `Step key "${key}" does not match id "${step.id}".`);
     if (isInteractive(step)) {
       const name = step.input.name;
-      if (answerOwner.has(name)) add(`steps.${key}.input.name`, `Answer name "${name}" is used by more than one step.`);
+      if (answerOwner.has(name)) {
+        add(`steps.${key}.input.name`, `Answer name "${name}" is used by more than one step.`);
+        duplicateNames.add(name);
+      }
       answerOwner.set(name, key);
       if (step.type === 'number' && step.input.min !== undefined && step.input.max !== undefined && step.input.min > step.input.max) {
         add(`steps.${key}.input`, 'min is greater than max.');
@@ -257,16 +261,32 @@ export function checkConfigSemantics(config: FunnelConfig): ConfigIssue[] {
 
   for (const [variantKey, variant] of Object.entries(config.experiment.variants)) {
     const base = `experiment.variants.${variantKey}`;
+    const resolveStep = (stepId: string): Step | undefined => {
+      const baseStep = config.steps[stepId];
+      if (!baseStep) return undefined;
+      const merged = stepSchema.safeParse(deepMerge(baseStep, variant.stepOverrides[stepId]));
+      return merged.success ? merged.data : baseStep;
+    };
     const seen = new Set<string>();
     const answeredBefore = new Set<string>();
+    const variantAnswerOwner = new Map<string, string>();
     variant.stepSequence.forEach((stepId, i) => {
-      const step = config.steps[stepId];
+      const step = resolveStep(stepId);
       if (!step) {
         add(`${base}.stepSequence.${i}`, `Unknown step "${stepId}".`);
         return;
       }
-      if (seen.has(stepId)) add(`${base}.stepSequence.${i}`, `Step "${stepId}" appears twice.`);
+      const repeated = seen.has(stepId);
+      if (repeated) add(`${base}.stepSequence.${i}`, `Step "${stepId}" appears twice.`);
       seen.add(stepId);
+      if (!repeated && isInteractive(step)) {
+        const name = step.input.name;
+        const owner = variantAnswerOwner.get(name);
+        if (owner && !duplicateNames.has(name)) {
+          add(`${base}.stepSequence.${i}`, `Answer name "${name}" is used by "${owner}" and "${stepId}" in variant ${variantKey}.`);
+        }
+        variantAnswerOwner.set(name, stepId);
+      }
       if (step.visibleWhen) {
         checkCondition(step.visibleWhen, `steps.${stepId}.visibleWhen`);
         for (const answer of conditionAnswers(step.visibleWhen)) {
@@ -283,9 +303,9 @@ export function checkConfigSemantics(config: FunnelConfig): ConfigIssue[] {
       }
       if (isInteractive(step)) answeredBefore.add(step.input.name);
     });
-    const last = config.steps[variant.stepSequence[variant.stepSequence.length - 1]];
+    const last = resolveStep(variant.stepSequence[variant.stepSequence.length - 1]);
     if (!last || last.type !== 'result') add(`${base}.stepSequence`, 'The sequence must end with a result step.');
-    const first = config.steps[variant.stepSequence[0]];
+    const first = resolveStep(variant.stepSequence[0]);
     if (first?.visibleWhen) add(`${base}.stepSequence.0`, 'The first step cannot be conditional.');
     for (const [key, override] of Object.entries(variant.stepOverrides)) {
       if (!config.steps[key]) add(`${base}.stepOverrides.${key}`, `Unknown step "${key}".`);

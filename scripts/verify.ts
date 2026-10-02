@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import type { AnalyticsResponse } from '../src/shared/api';
+import { NO_CAMPAIGN, type AnalyticsResponse } from '../src/shared/api';
 import { parseArgs } from './lib/args';
 import { createClient } from './lib/http';
 import type { Expected } from './lib/truth';
@@ -64,9 +64,9 @@ async function main() {
   );
 
   for (const c of expected.campaigns) {
-    if (!c.campaign) continue;
-    const filtered = await fetchAnalytics({ utm_campaign: c.campaign });
-    check(`campaign ${c.campaign} started`, c.started, filtered.totals.started);
+    const campaign = c.campaign ?? NO_CAMPAIGN;
+    const filtered = await fetchAnalytics({ utm_campaign: campaign });
+    check(`campaign ${campaign} started`, c.started, filtered.totals.started);
   }
 
   const failed = checks.filter((c) => c.expected !== c.actual);

@@ -19,7 +19,7 @@ export function describeExperiment(experiment: ExperimentComparison): string {
 
   const direction = diff > 0 ? 'better' : 'worse';
   const claim = `${challenger.variant} converts ${points} pp ${direction} than ${baseline.variant} ${rates}`;
-  if (experiment.significant === null) return `${claim}; there is not enough data for a significance test yet.`;
+  if (experiment.significant === null) return `${claim}; there is not enough data yet for a significance test.`;
   if (experiment.significant) return `${claim}, and the difference is significant at 95% (p ${pText(experiment.pValue)}).`;
   return `${claim}, but the difference is not significant yet (p ${pText(experiment.pValue)}).`;
 }

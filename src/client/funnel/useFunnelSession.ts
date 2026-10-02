@@ -13,9 +13,10 @@ import {
   submitAnswer,
 } from '../api';
 import * as events from '../events';
-import { browserStorage, sharedOutbox } from '../outbox';
+import { browserStorage, sharedOutbox, type KeyValueStorage } from '../outbox';
 
 const SESSION_KEY = 'funnel.sessionId';
+const EXPANDED_KEY_PREFIX = 'funnel.expanded.';
 const HISTORY_MARKER = 'funnelStep';
 const EXPIRED_NOTICE = 'Your previous session has expired, so we started a new one.';
 const CONFLICT_NOTICE = 'That step is no longer available, so we reloaded your progress.';
@@ -26,6 +27,8 @@ function sessionRequestFromUrl(): CreateSessionRequest {
   const storage = browserStorage();
   const url = new URL(window.location.href);
   if (url.searchParams.get('reset') === '1') {
+    const previous = storage.getItem(SESSION_KEY);
+    if (previous) storage.removeItem(expandedKey(previous));
     storage.removeItem(SESSION_KEY);
     url.searchParams.delete('reset');
     window.history.replaceState(window.history.state, '', url);
@@ -36,6 +39,39 @@ function sessionRequestFromUrl(): CreateSessionRequest {
     variant: param('variant'),
     utm: { source: param('utm_source'), medium: param('utm_medium'), campaign: param('utm_campaign') },
   };
+}
+
+export function expandedKey(sessionId: string): string {
+  return `${EXPANDED_KEY_PREFIX}${sessionId}`;
+}
+
+export function readExpandedResult(sessionId: string, storage: KeyValueStorage = browserStorage()): string | null {
+  try {
+    return storage.getItem(expandedKey(sessionId));
+  } catch {
+    return null;
+  }
+}
+
+export function saveExpandedResult(
+  sessionId: string,
+  resultId: string,
+  storage: KeyValueStorage = browserStorage(),
+): void {
+  try {
+    storage.setItem(expandedKey(sessionId), resultId);
+  } catch (error) {
+    console.warn('The opened action list could not be remembered.', error);
+  }
+}
+
+export function isReplacedSession(request: CreateSessionRequest, state: SessionState): boolean {
+  return (
+    Boolean(request.sessionId) &&
+    state.session.id !== request.sessionId &&
+    !state.resumed &&
+    state.session.assignmentSource !== 'override'
+  );
 }
 
 export function startOverHref(): string {
@@ -52,6 +88,10 @@ function isHistoryMarker(historyState: unknown): boolean {
   return typeof historyState === 'object' && historyState !== null && HISTORY_MARKER in historyState;
 }
 
+function hasPreviousStep(view: FunnelView | null): boolean {
+  return view !== null && prevStepId(view.state.funnel, view.state.answers, view.state.currentStepId) !== null;
+}
+
 function emit(event: IncomingEvent | null): void {
   if (event) sharedOutbox().enqueue(event);
 }
@@ -66,13 +106,13 @@ export function useFunnelSession() {
   const viewRef = useRef<FunnelView | null>(null);
   const sessionRequest = useRef<CreateSessionRequest | null>(null);
   const busyRef = useRef(false);
+  const pendingBack = useRef(false);
   const started = useRef(false);
   const viewedSeq = useRef(0);
   const resultRequestedSeq = useRef(0);
   const resultViewedSeq = useRef(0);
 
-  const canGoBack =
-    view !== null && prevStepId(view.state.funnel, view.state.answers, view.state.currentStepId) !== null;
+  const canGoBack = hasPreviousStep(view);
 
   function show(state: SessionState) {
     const current = viewRef.current;
@@ -89,8 +129,10 @@ export function useFunnelSession() {
   async function start() {
     setStartFailed(false);
     try {
-      sessionRequest.current ??= sessionRequestFromUrl();
-      show(await createSession(sessionRequest.current));
+      const request = (sessionRequest.current ??= sessionRequestFromUrl());
+      const state = await createSession(request);
+      show(state);
+      if (isReplacedSession(request, state)) setNotice(EXPIRED_NOTICE);
     } catch {
       setStartFailed(true);
     }
@@ -126,6 +168,10 @@ export function useFunnelSession() {
     } finally {
       busyRef.current = false;
       setBusy(false);
+    }
+    if (pendingBack.current) {
+      pendingBack.current = false;
+      if (hasPreviousStep(viewRef.current)) goBack();
     }
   }
 
@@ -213,7 +259,9 @@ export function useFunnelSession() {
 
   useEffect(() => {
     function onPopState(event: PopStateEvent) {
-      if (!isHistoryMarker(event.state) && canGoBack) goBack();
+      if (isHistoryMarker(event.state) || !canGoBack) return;
+      if (busyRef.current) pendingBack.current = true;
+      else goBack();
     }
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);

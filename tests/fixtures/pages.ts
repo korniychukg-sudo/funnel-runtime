@@ -58,7 +58,7 @@ export const overview: AdminOverview = {
 export const analytics: AnalyticsResponse = {
   generatedAt: '2026-10-02T13:14:15.000Z',
   filters: { utmCampaign: null, version: null, runId: null, includeOverrides: false },
-  available: { campaigns: ['spring_launch', 'retargeting'], versions: [1, 3] },
+  available: { campaigns: ['retargeting', 'spring_launch', '(none)'], versions: [1, 3] },
   totals: { started: 1500, reachedResult: 600, resultRate: 0.4, ctaClicked: 240, ctr: 0.4, startedToCta: 0.16 },
   versions: [
     { version: 1, experimentId: 'exp-v1', started: 1200, reachedResult: 500, resultRate: 500 / 1200, ctaClicked: 200, ctr: 0.4, startedToCta: 200 / 1200 },
@@ -120,5 +120,11 @@ export const analytics: AnalyticsResponse = {
     backClicks: 45,
     outOfOrderEvents: 19,
     sessionsWithOutOfOrderEvents: 1,
+    events: [
+      { name: 'cta_clicked', events: 251, sessions: 240 },
+      { name: 'recommendation_expanded', events: 41, sessions: 38 },
+      { name: 'session_started', events: 1500, sessions: 1500 },
+      { name: 'step_viewed', events: 10553, sessions: 1500 },
+    ],
   },
 };

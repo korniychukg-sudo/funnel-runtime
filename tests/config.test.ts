@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { parseFunnelConfig, type ConfigIssue } from '../src/shared/config';
 
 type RawConfig = {
-  experiment: { variants: Record<string, { stepSequence: string[]; stepOverrides?: object; resultOverrides?: object }> };
+  experiment: {
+    variants: Record<string, { stepSequence: string[]; stepOverrides?: Record<string, object>; resultOverrides?: object }>;
+  };
+  session?: { ttlHours?: number };
   steps: Record<string, { visibleWhen?: unknown }>;
   resultRules: Array<{ resultId: string }>;
   [key: string]: unknown;
@@ -107,6 +110,65 @@ describe('parseFunnelConfig', () => {
       { path: 'experiment.variants.A.stepSequence.7', message: 'The result step must be the last step.' },
       { path: 'experiment.variants.A.stepSequence', message: 'The sequence must end with a result step.' },
     ]);
+  });
+
+  it('checks variant sequences on the steps after overrides', () => {
+    const conditionalFirst = editedV1((r) => {
+      r.experiment.variants.B.stepOverrides!.intro = { visibleWhen: { answer: 'work_mode', operator: 'eq', value: 'remote' } };
+    });
+    expect(errorsOf(conditionalFirst)).toEqual([
+      {
+        path: 'experiment.variants.B.stepSequence.0',
+        message: 'Step "intro" depends on "work_mode", which is not asked earlier in variant B.',
+      },
+      { path: 'experiment.variants.B.stepSequence.0', message: 'The first step cannot be conditional.' },
+    ]);
+
+    const earlyResult = editedV1((r) => {
+      r.experiment.variants.B.stepOverrides!.tool_count = { type: 'result' };
+    });
+    expect(errorsOf(earlyResult)).toEqual([
+      { path: 'experiment.variants.B.stepSequence.7', message: 'The result step must be the last step.' },
+    ]);
+
+    const sharedName = editedV1((r) => {
+      r.experiment.variants.B.stepOverrides!.tool_count = { input: { name: 'team_size' } };
+    });
+    expect(errorsOf(sharedName)).toEqual([
+      {
+        path: 'experiment.variants.B.stepSequence.7',
+        message: 'Answer name "team_size" is used by "team_size" and "tool_count" in variant B.',
+      },
+    ]);
+
+    const forwardDependency = editedV1((r) => {
+      r.experiment.variants.B.stepOverrides!.team_size = { visibleWhen: { answer: 'priorities', operator: 'answered' } };
+    });
+    expect(errorsOf(forwardDependency)).toEqual([
+      {
+        path: 'experiment.variants.B.stepSequence.3',
+        message: 'Step "team_size" depends on "priorities", which is not asked earlier in variant B.',
+      },
+    ]);
+
+    const conditionalResult = editedV1((r) => {
+      r.experiment.variants.A.stepOverrides = { result: { visibleWhen: { answer: 'work_mode', operator: 'answered' } } };
+    });
+    expect(errorsOf(conditionalResult)).toEqual([
+      { path: 'steps.result.visibleWhen', message: 'The result step cannot be conditional.' },
+    ]);
+  });
+
+  it('limits the session TTL to one year', () => {
+    const year = editedV1((r) => {
+      r.session = { ...r.session, ttlHours: 8760 };
+    });
+    expect(errorsOf(year)).toEqual([]);
+
+    const tooLong = editedV1((r) => {
+      r.session = { ...r.session, ttlHours: 8761 };
+    });
+    expect(errorsOf(tooLong).map((issue) => issue.path)).toEqual(['session.ttlHours']);
   });
 
   it('rejects an unknown operator at the schema level', () => {

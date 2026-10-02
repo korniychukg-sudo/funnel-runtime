@@ -98,9 +98,8 @@ export class SessionSimulation {
     private readonly behaviour: Behaviour,
     private readonly utm: Utm,
     private readonly runId: string,
-    startMs: number,
   ) {
-    this.clock = startMs;
+    this.clock = Date.now();
   }
 
   get sessionId() {
@@ -211,7 +210,7 @@ export class SessionSimulation {
   private emit(name: string, stepId: string, properties: Record<string, unknown>) {
     const allowed = this.state.funnel.allowedEvents[name];
     if (!allowed) return;
-    this.clock += this.random.int(2, 25) * 1000;
+    this.clock = Math.max(Date.now(), this.clock + 1);
     const { session } = this.state;
     this.events.push({
       event_id: randomUUID(),

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
@@ -42,17 +42,29 @@ function createConfigCache(db: DatabaseSync): (version: number) => FunnelConfig 
   };
 }
 
-function isApiPath(url: string): boolean {
+export function resolveDbPath(env: NodeJS.ProcessEnv): string {
+  const volume = env.RAILWAY_VOLUME_MOUNT_PATH;
+  return env.DB_PATH ?? (volume ? join(volume, 'funnel.db') : './data/funnel.db');
+}
+
+function isUnder(path: string, prefix: string): boolean {
+  return path === prefix || path.startsWith(`${prefix}/`);
+}
+
+function wantsSpaPage(method: string, url: string): boolean {
+  if (method !== 'GET' && method !== 'HEAD') return false;
   const path = url.split('?')[0];
-  return path === '/api' || path.startsWith('/api/');
+  if (isUnder(path, '/api') || isUnder(path, '/assets')) return false;
+  const lastSegment = path.slice(path.lastIndexOf('/') + 1);
+  return !lastSegment.includes('.');
 }
 
 function sendError(reply: FastifyReply, statusCode: number, error: string, message: string, details?: unknown) {
   return reply.status(statusCode).send({ error, message, details });
 }
 
-function acceptEmptyJsonBodies(app: FastifyInstance): void {
-  const parseJson = app.getDefaultJsonParser('error', 'error');
+function registerJsonParser(app: FastifyInstance): void {
+  const parseJson = app.getDefaultJsonParser('remove', 'remove');
   app.removeContentTypeParser('application/json');
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
     const text = body.toString();
@@ -71,7 +83,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     configFor: createConfigCache(options.db),
   };
   seedIfEmpty(ctx);
-  acceptEmptyJsonBodies(app);
+  registerJsonParser(app);
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof HttpError) return sendError(reply, error.statusCode, error.code, error.message, error.details);
@@ -92,7 +104,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   if (staticDir) await app.register(fastifyStatic, { root: staticDir });
 
   app.setNotFoundHandler((request, reply) => {
-    if (staticDir && request.method === 'GET' && !isApiPath(request.url)) return reply.sendFile('index.html');
+    if (staticDir && wantsSpaPage(request.method, request.url)) return reply.sendFile('index.html');
     return sendError(reply, 404, 'not_found', `No route for ${request.method} ${request.url}.`);
   });
 

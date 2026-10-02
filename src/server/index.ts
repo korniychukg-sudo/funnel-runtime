@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { buildApp } from './app';
+import { buildApp, resolveDbPath } from './app';
 import { openDatabase } from './db';
 import { purgeExpiredAnswers } from './store';
 
@@ -9,7 +9,7 @@ const DEFAULT_STATIC_DIR = './dist/client';
 
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.IP ?? process.env.HOST ?? '0.0.0.0';
-const dbPath = process.env.DB_PATH ?? './data/funnel.db';
+const dbPath = resolveDbPath(process.env);
 const configsDir = resolve(process.env.CONFIGS_DIR ?? './configs');
 const staticDir = process.env.STATIC_DIR ?? (existsSync(DEFAULT_STATIC_DIR) ? DEFAULT_STATIC_DIR : null);
 
@@ -22,6 +22,7 @@ const app = await buildApp({
   staticDir,
   logger: true,
 });
+app.log.info({ dbPath: dbPath === ':memory:' ? dbPath : resolve(dbPath) }, 'Using database');
 
 function cleanupExpiredSessions(): void {
   const purged = purgeExpiredAnswers(db, new Date().toISOString());

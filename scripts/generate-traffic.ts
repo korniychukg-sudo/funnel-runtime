@@ -22,7 +22,12 @@ simple      every session runs on the currently active version.
 iteration2  part of the sessions start on the active version and pause mid-funnel,
             funnel-v3.json is imported and published, new sessions run on v3,
             the paused sessions resume (and must stay on their pinned version),
-            then the active version is rolled back.`;
+            then the active version is rolled back. Needs a database where v3
+            has not been imported yet.
+
+--seed fixes the behaviour model (answers, drop-offs, Back, delivery faults).
+Variants are assigned by the server from random session ids, so every run
+produces a different dataset; each run is checked against its own expected file.`;
 
 async function pool<T>(items: T[], size: number, work: (item: T) => Promise<void>) {
   const queue = [...items];
@@ -34,8 +39,7 @@ async function pool<T>(items: T[], size: number, work: (item: T) => Promise<void
 
 function newSimulation(client: Client, random: Random, runId: string, index: number) {
   const utm = CAMPAIGNS[index % CAMPAIGNS.length];
-  const start = Date.now() - random.int(10, 240) * 60_000;
-  return new SessionSimulation(client, random, DEFAULT_BEHAVIOUR, utm, runId, start);
+  return new SessionSimulation(client, random, DEFAULT_BEHAVIOUR, utm, runId);
 }
 
 function planDelivery(events: IncomingEvent[], random: Random, sessionIds: string[]) {
@@ -99,6 +103,38 @@ function planDelivery(events: IncomingEvent[], random: Random, sessionIds: strin
   return { sends, arrival, swaps, duplicateCopies, resentBatches, invalidEvents: invalid.length, invalidSends, batches: batches.length };
 }
 
+async function runIteration2(client: Client, sims: SessionSimulation[], concurrency: number) {
+  const total = sims.length;
+  const firstWave = sims.slice(0, Math.ceil(total * 0.45));
+  const secondWave = sims.slice(firstWave.length);
+  const paused = firstWave.filter((_, i) => i % 3 === 0);
+
+  await pool(firstWave, concurrency, async (sim) => {
+    await sim.start();
+    await sim.run(paused.includes(sim) ? 2 : Infinity);
+  });
+  const before = await client.adminOverview();
+  console.log(`Wave 1 done on v${before.activeVersion}; ${paused.filter((s) => !s.finished).length} sessions paused mid-funnel.`);
+
+  const imported = await client.importFixture('funnel-v3.json');
+  await client.publish(imported.version);
+  console.log(`Imported and published v${imported.version}.`);
+
+  await pool(secondWave, concurrency, async (sim) => {
+    await sim.start();
+    await sim.run();
+  });
+  const pausedOld = paused.filter((s) => !s.finished);
+  await pool(pausedOld, concurrency, async (sim) => {
+    await sim.resume();
+    await sim.run();
+  });
+  console.log(`Wave 2 done; ${pausedOld.length} paused sessions resumed on their pinned version.`);
+
+  const after = await client.rollback();
+  console.log(`Rolled back; active version is v${after.activeVersion}.`);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -118,46 +154,32 @@ async function main() {
   const random = createRandom(seed);
   const sims = Array.from({ length: total }, (_, i) => newSimulation(client, random, runId, i));
 
-  console.log(`Run ${runId}: ${total} sessions against ${baseUrl} (scenario ${scenario})`);
-
+  if (scenario !== 'simple' && scenario !== 'iteration2') throw new Error(`Unknown scenario "${scenario}".`);
   if (scenario === 'iteration2') {
-    const firstWave = sims.slice(0, Math.ceil(total * 0.45));
-    const secondWave = sims.slice(firstWave.length);
-    const paused = firstWave.filter((_, i) => i % 3 === 0);
-
-    await pool(firstWave, concurrency, async (sim) => {
-      await sim.start();
-      await sim.run(paused.includes(sim) ? 2 : Infinity);
-    });
-    const before = await client.adminOverview();
-    console.log(`Wave 1 done on v${before.activeVersion}; ${paused.filter((s) => !s.finished).length} sessions paused mid-funnel.`);
-
-    const imported = await client.importFixture('funnel-v3.json');
-    await client.publish(imported.version);
-    console.log(`Imported and published v${imported.version}.`);
-
-    await pool(secondWave, concurrency, async (sim) => {
-      await sim.start();
-      await sim.run();
-    });
-    const pausedOld = paused.filter((s) => !s.finished);
-    await pool(pausedOld, concurrency, async (sim) => {
-      await sim.resume();
-      await sim.run();
-    });
-    console.log(`Wave 2 done; ${pausedOld.length} paused sessions resumed on their pinned version.`);
-
-    const after = await client.rollback();
-    console.log(`Rolled back; active version is v${after.activeVersion}.`);
-  } else {
-    await pool(sims, concurrency, async (sim) => {
-      await sim.start();
-      await sim.run();
-    });
+    const overview = await client.adminOverview();
+    if (overview.versions.some((v) => v.version === 3)) {
+      throw new Error('Version 3 is already imported on this server, so the iteration2 scenario cannot run. Use --scenario simple.');
+    }
   }
 
-  const events = sims.flatMap((s) => s.events);
-  const plan = planDelivery(events, random, sims.map((s) => s.sessionId));
+  console.log(`Run ${runId}: ${total} sessions against ${baseUrl} (scenario ${scenario})`);
+
+  let failure: unknown = null;
+  try {
+    if (scenario === 'iteration2') await runIteration2(client, sims, concurrency);
+    else await pool(sims, concurrency, async (sim) => {
+      await sim.start();
+      await sim.run();
+    });
+  } catch (error) {
+    failure = error;
+    console.error('Simulation stopped early; delivering the events of the sessions that did start.');
+  }
+
+  const started = sims.filter((s) => s.truth);
+  if (started.length === 0) throw failure ?? new Error('No session was started.');
+  const events = started.flatMap((s) => s.events);
+  const plan = planDelivery(events, random, started.map((s) => s.sessionId));
   let accepted = 0;
   let duplicates = 0;
   let rejected = 0;
@@ -175,7 +197,7 @@ async function main() {
 
   const expected: Expected = buildExpected(
     runId,
-    sims.map((s) => s.truth),
+    started.map((s) => s.truth),
     plan.arrival,
     {
       eventsGenerated: events.length,
@@ -198,6 +220,7 @@ async function main() {
     console.error(`Delivery mismatch: ${problems.join('; ')}`);
     process.exitCode = 1;
   }
+  if (failure) throw failure;
 }
 
 main().catch((error) => {

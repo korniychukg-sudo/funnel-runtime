@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react';
-import type { AnalyticsQuery } from '../../shared/api';
+import { NO_CAMPAIGN, type AnalyticsQuery } from '../../shared/api';
 import { formatTime } from './format';
 
 type Props = {
@@ -14,6 +14,10 @@ type Props = {
 
 function withCurrent<T>(options: T[], current: T | undefined): T[] {
   return current === undefined || options.includes(current) ? options : [...options, current];
+}
+
+function campaignLabel(campaign: string): string {
+  return campaign === NO_CAMPAIGN ? '(no campaign)' : campaign;
 }
 
 function hasFilters(query: AnalyticsQuery): boolean {
@@ -40,7 +44,7 @@ export function DashboardFilters({ query, campaigns, versions, generatedAt, load
           <option value="">All campaigns</option>
           {withCurrent(campaigns, query.utmCampaign).map((campaign) => (
             <option key={campaign} value={campaign}>
-              {campaign}
+              {campaignLabel(campaign)}
             </option>
           ))}
         </select>

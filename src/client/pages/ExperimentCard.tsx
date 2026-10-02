@@ -5,7 +5,7 @@ import { RateBar } from './RateBar';
 import { VariantLabel } from './VariantLabel';
 
 function SignificanceBadge({ significant }: { significant: boolean | null }) {
-  if (significant === null) return <span className="badge">not enough data</span>;
+  if (significant === null) return <span className="badge">not enough data yet</span>;
   if (significant) return <span className="badge badge-success">significant at 95%</span>;
   return <span className="badge badge-warning">not significant</span>;
 }

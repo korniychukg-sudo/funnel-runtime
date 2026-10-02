@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type Ref } from 'react';
 import type { FunnelResult, Step } from '../../shared/config';
-import { startOverHref } from './useFunnelSession';
+import { readExpandedResult, saveExpandedResult, startOverHref } from './useFunnelSession';
 
 type ResultStepProps = {
   step: Extract<Step, { type: 'result' }>;
+  sessionId: string;
   result: FunnelResult | null;
   failed: boolean;
   error: string | null;
@@ -22,8 +23,10 @@ function ResultSkeleton() {
   );
 }
 
-export function ResultStep({ step, result, failed, error, headingRef, onRetry, onCta }: ResultStepProps) {
-  const [expanded, setExpanded] = useState(false);
+export function ResultStep({ step, sessionId, result, failed, error, headingRef, onRetry, onCta }: ResultStepProps) {
+  const [expandedResultId, setExpandedResultId] = useState(() => readExpandedResult(sessionId));
+  const expanded = result !== null && expandedResultId === result.id;
+  const focusActionList = useRef(false);
   const actionListRef = useRef<HTMLElement>(null);
   const { eyebrow, loadingTitle, errorTitle, retryLabel } = step.content;
   const pendingTitle = failed
@@ -31,13 +34,18 @@ export function ResultStep({ step, result, failed, error, headingRef, onRetry, o
     : (loadingTitle ?? 'Preparing your result…');
 
   useEffect(() => {
-    if (expanded) actionListRef.current?.focus();
+    if (!expanded || !focusActionList.current) return;
+    focusActionList.current = false;
+    actionListRef.current?.focus();
   }, [expanded]);
 
   function handleCta(chosen: FunnelResult) {
     const expands = chosen.cta.action === 'expand_recommendation';
     onCta(expands && !expanded);
-    if (expands) setExpanded(true);
+    if (!expands) return;
+    focusActionList.current = true;
+    setExpandedResultId(chosen.id);
+    saveExpandedResult(sessionId, chosen.id);
   }
 
   return (

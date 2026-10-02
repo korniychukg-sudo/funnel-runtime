@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { MAX_EVENTS_PER_BATCH, type ApiError, type EventsResponse, type IncomingEvent, type SessionState } from '../src/shared/api';
-import { countRows, createSession, createTestApp, post } from './helpers';
+import { adminPost, countRows, createSession, createTestApp, post, readFixture } from './helpers';
 
 function stepViewed(state: SessionState, overrides: Partial<IncomingEvent> = {}): IncomingEvent {
   return {
@@ -28,6 +28,14 @@ async function sendEvents(app: Parameters<typeof post>[0], events: unknown[]): P
 
 function storedEvent(db: DatabaseSync, eventId: string) {
   return db.prepare('SELECT * FROM events WHERE event_id = ?').get(eventId) as Record<string, unknown>;
+}
+
+function storedProperties(db: DatabaseSync, eventId: string): Record<string, unknown> {
+  return JSON.parse(storedEvent(db, eventId).properties_json as string) as Record<string, unknown>;
+}
+
+function reasons(response: EventsResponse): string[] {
+  return response.results.map((result) => result.reason ?? result.status);
 }
 
 describe('event ingestion', () => {
@@ -152,8 +160,133 @@ describe('event ingestion', () => {
       utm_medium: null,
       utm_campaign: 'spring',
       client_ts: '2026-01-05T09:00:01.000+03:00',
-      properties_json: '{}',
+      properties_json: '{"step_type":"info"}',
     });
+  });
+
+  it('stamps step_type and answer_kind from the step and ignores the client values', async () => {
+    const { app, db } = await createTestApp();
+    const state = await createSession(app, { variant: 'A' });
+    const viewed = stepViewed(state, {
+      step_id: 'team_size',
+      properties: { step_type: 'result', visible_step_index: 0, visible_step_count: 7 },
+    });
+    const viewedBare = stepViewed(state, { step_id: 'work_mode', properties: undefined });
+    const answered = stepViewed(state, {
+      name: 'answer_submitted',
+      step_id: 'priorities',
+      properties: { answer_kind: { raw: ['speed', 'focus'] } },
+    });
+
+    const response = await sendEvents(app, [viewed, viewedBare, answered]);
+    expect(response.accepted).toBe(3);
+    expect(storedProperties(db, viewed.event_id)).toEqual({ step_type: 'number', visible_step_index: 0, visible_step_count: 7 });
+    expect(storedProperties(db, viewedBare.event_id)).toEqual({ step_type: 'single-select' });
+    expect(storedProperties(db, answered.event_id)).toEqual({ answer_kind: 'multi-select' });
+  });
+
+  it('stamps the step type of the variant-resolved step', async () => {
+    const { app, db } = await createTestApp();
+    const config = readFixture('funnel-v1.json') as { experiment: { variants: Record<string, { stepOverrides: object }> } };
+    config.experiment.variants.B.stepOverrides = {
+      team_size: { type: 'single-select', input: { options: [{ value: 'small', label: 'Small' }] } },
+    };
+    const uploaded = await post(app, '/api/admin/versions', { config: { ...config, version: 2 } });
+    expect(uploaded.statusCode, uploaded.body).toBe(201);
+    expect((await adminPost(app, '/versions/2/publish')).statusCode).toBe(200);
+
+    const a = await createSession(app, { variant: 'A' });
+    const b = await createSession(app, { variant: 'B' });
+    const events = [a, b].map((state) => stepViewed(state, { step_id: 'team_size', properties: { step_type: 'number' } }));
+
+    expect((await sendEvents(app, events)).accepted).toBe(2);
+    expect(storedProperties(db, events[0].event_id).step_type).toBe('number');
+    expect(storedProperties(db, events[1].event_id).step_type).toBe('single-select');
+  });
+
+  it('rejects property values that are not short primitives or known references', async () => {
+    const { app, db } = await createTestApp();
+    const state = await createSession(app, { variant: 'A' });
+    const event = (name: string, stepId: string, properties: Record<string, unknown>) =>
+      stepViewed(state, { name, step_id: stepId, properties });
+
+    const response = await sendEvents(app, [
+      event('result_viewed', 'result', { result_id: 'balanced' }),
+      event('result_viewed', 'result', { result_id: 'meeting_heavy' }),
+      event('result_viewed', 'result', { result_id: 'constructor' }),
+      event('result_viewed', 'result', { result_id: null }),
+      event('cta_clicked', 'result', { result_id: 'balanced', action: true, extra: { nested: [1] } }),
+      event('cta_clicked', 'result', { result_id: 'balanced', action: { href: 'https://example.com' } }),
+      event('cta_clicked', 'result', { result_id: 'balanced', action: 'x'.repeat(257) }),
+      event('cta_clicked', 'result', { result_id: 'balanced', action: ['a'] }),
+      event('step_completed', 'team_size', { next_step_id: 'work_mode' }),
+      event('step_completed', 'team_size', { next_step_id: 'meeting_hours' }),
+      event('back_clicked', 'work_mode', { destination_step_id: 'team_size' }),
+      event('back_clicked', 'work_mode', { destination_step_id: 7 }),
+      event('step_viewed', 'intro', { visible_step_index: null, visible_step_count: 7 }),
+      event('step_viewed', 'team_size', { visible_step_index: 1.5 }),
+      event('step_viewed', 'team_size', { visible_step_count: -1 }),
+      event('step_viewed', 'team_size', { visible_step_index: '1' }),
+    ]);
+
+    expect(reasons(response)).toEqual([
+      'accepted',
+      'invalid_property',
+      'invalid_property',
+      'invalid_property',
+      'accepted',
+      'invalid_property',
+      'invalid_property',
+      'invalid_property',
+      'accepted',
+      'invalid_property',
+      'accepted',
+      'invalid_property',
+      'accepted',
+      'invalid_property',
+      'invalid_property',
+      'invalid_property',
+    ]);
+    expect(storedProperties(db, response.results[4].event_id!)).toEqual({ result_id: 'balanced', action: true });
+  });
+
+  it('rejects a property number that is not finite', async () => {
+    const { app } = await createTestApp();
+    const state = await createSession(app, { variant: 'A' });
+    const event = stepViewed(state, { name: 'cta_clicked', step_id: 'result', properties: { result_id: 'balanced', action: 0 } });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/events',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({ events: [event] }).replace('"action":0', '"action":1e999'),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(reasons(response.json<EventsResponse>())).toEqual(['invalid_property']);
+  });
+
+  it('strips __proto__ and constructor.prototype keys instead of failing the batch', async () => {
+    const { app, db } = await createTestApp();
+    const state = await createSession(app, { variant: 'A' });
+    const poisoned = stepViewed(state, { step_id: 'team_size', properties: { visible_step_count: 7 } });
+    const clean = stepViewed(state, { step_id: 'work_mode' });
+    const body = JSON.stringify({ events: [poisoned, clean] }).replace(
+      '"properties":{"visible_step_count":7}',
+      '"properties":{"visible_step_count":7,"__proto__":{"admin":true},"constructor":{"prototype":{"admin":true}}}',
+    );
+    expect(body).toContain('__proto__');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/events',
+      headers: { 'content-type': 'application/json' },
+      payload: `{"__proto__":{"events":[]},${body.slice(1)}`,
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json<EventsResponse>()).toMatchObject({ accepted: 2, rejected: 0 });
+    expect(storedProperties(db, poisoned.event_id)).toEqual({ step_type: 'number', visible_step_count: 7 });
+    expect(({} as Record<string, unknown>).admin).toBeUndefined();
   });
 
   it('stamps the result step on result events and sets the server time', async () => {

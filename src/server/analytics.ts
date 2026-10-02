@@ -1,14 +1,16 @@
-import type {
-  AnalyticsQuery,
-  AnalyticsResponse,
-  DataQuality,
-  ExperimentComparison,
-  FunnelBreakdown,
-  FunnelStepStats,
-  KpiStats,
-  Rate,
-  ResultMixRow,
-  VariantStats,
+import {
+  NO_CAMPAIGN,
+  type AnalyticsQuery,
+  type AnalyticsResponse,
+  type DataQuality,
+  type EventCount,
+  type ExperimentComparison,
+  type FunnelBreakdown,
+  type FunnelStepStats,
+  type KpiStats,
+  type Rate,
+  type ResultMixRow,
+  type VariantStats,
 } from '../shared/api';
 import type { FunnelConfig } from '../shared/config';
 import { resolveFunnel } from '../shared/engine';
@@ -51,6 +53,7 @@ export type AnalyticsInput = {
 const STEP_EVENTS = new Set(['step_viewed', 'answer_submitted', 'step_completed', 'back_clicked']);
 const RESULT_EVENTS = new Set(['result_viewed', 'cta_clicked', 'recommendation_expanded']);
 const SIGNIFICANCE_LEVEL = 0.05;
+const MIN_EXPECTED_COUNT = 5;
 
 type Outcomes = { reachedResult: Set<string>; ctaClicked: Set<string> };
 
@@ -96,9 +99,13 @@ export function computeAnalytics(input: AnalyticsInput): AnalyticsResponse {
 
 function inPopulation(session: AnalyticsSessionRow, query: AnalyticsQuery): boolean {
   if (query.version !== undefined && session.version !== query.version) return false;
-  if (query.utmCampaign !== undefined && session.utmCampaign !== query.utmCampaign) return false;
+  if (query.utmCampaign !== undefined && !matchesCampaign(session.utmCampaign, query.utmCampaign)) return false;
   if (query.runId !== undefined && session.runId !== query.runId) return false;
   return true;
+}
+
+function matchesCampaign(campaign: string | null, filter: string): boolean {
+  return filter === NO_CAMPAIGN ? campaign === null : campaign === filter;
 }
 
 function groupEventsBySession(events: AnalyticsEventRow[]): EventsBySession {
@@ -132,9 +139,11 @@ function variantKeys(config: FunnelConfig): string[] {
 }
 
 function availableFilters(sessions: AnalyticsSessionRow[]): AnalyticsResponse['available'] {
-  const campaigns = sessions.map((session) => session.utmCampaign).filter((campaign) => campaign !== null);
+  const named = sessions.map((session) => session.utmCampaign).filter((campaign) => campaign !== null);
+  const campaigns = [...new Set(named)].filter((campaign) => campaign !== NO_CAMPAIGN).sort(compareText);
+  if (sessions.some((session) => session.utmCampaign === null)) campaigns.push(NO_CAMPAIGN);
   return {
-    campaigns: [...new Set(campaigns)].sort(compareText),
+    campaigns,
     versions: [...new Set(sessions.map((session) => session.version))].sort((a, b) => a - b),
   };
 }
@@ -196,11 +205,21 @@ function compareTwoVariants(variants: VariantStats[]): VariantComparison {
 }
 
 function twoProportionPValue(successesA: number, totalA: number, successesB: number, totalB: number): number | null {
-  const pooled = (successesA + successesB) / (totalA + totalB);
+  const successes = successesA + successesB;
+  const total = totalA + totalB;
+  if (!hasMinimumSample(totalA, successes, total) || !hasMinimumSample(totalB, successes, total)) return null;
+  const pooled = successes / total;
   const standardError = Math.sqrt(pooled * (1 - pooled) * (1 / totalA + 1 / totalB));
-  if (standardError === 0) return null;
   const z = (successesB / totalB - successesA / totalA) / standardError;
   return 2 * normalCdf(-Math.abs(z));
+}
+
+function hasMinimumSample(armTotal: number, pooledSuccesses: number, pooledTotal: number): boolean {
+  const pooledFailures = pooledTotal - pooledSuccesses;
+  return (
+    armTotal * pooledSuccesses >= MIN_EXPECTED_COUNT * pooledTotal &&
+    armTotal * pooledFailures >= MIN_EXPECTED_COUNT * pooledTotal
+  );
 }
 
 function normalCdf(z: number): number {
@@ -337,7 +356,21 @@ function dataQuality(events: AnalyticsEventRow[], eventsBySession: EventsBySessi
     backClicks: events.filter((event) => event.name === 'back_clicked').length,
     outOfOrderEvents,
     sessionsWithOutOfOrderEvents,
+    events: eventCounts(events),
   };
+}
+
+function eventCounts(events: AnalyticsEventRow[]): EventCount[] {
+  const counts = new Map<string, { events: number; sessions: Set<string> }>();
+  for (const event of events) {
+    const count = counts.get(event.name) ?? { events: 0, sessions: new Set<string>() };
+    count.events += 1;
+    count.sessions.add(event.sessionId);
+    counts.set(event.name, count);
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, events: count.events, sessions: count.sessions.size }))
+    .sort((a, b) => compareText(a.name, b.name));
 }
 
 function countOutOfOrder(events: AnalyticsEventRow[]): number {

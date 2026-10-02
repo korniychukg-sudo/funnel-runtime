@@ -214,6 +214,21 @@ describe('session lifecycle', () => {
     expect(response.statusCode).toBe(400);
     expect(response.json<ApiError>().error).toBe('invalid_request');
   });
+
+  it('drops __proto__ keys from a request body and handles the rest', async () => {
+    const { app } = await createTestApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      headers: { 'content-type': 'application/json' },
+      payload: '{"__proto__":{"variant":"B"},"utm":{"campaign":"spring","__proto__":{"source":"x"}}}',
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    const state = response.json<SessionState>();
+    expect(state.session.assignmentSource).toBe('hash');
+    expect(state.session.utm).toEqual({ source: null, medium: null, campaign: 'spring' });
+  });
 });
 
 describe('variant override', () => {

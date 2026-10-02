@@ -4,6 +4,7 @@ import type { InteractiveStep } from '../../shared/config';
 import { validateAnswer } from '../../shared/engine';
 import { MultiSelectField } from './MultiSelectField';
 import { NumberField } from './NumberField';
+import type { DraftAnswer } from './progress';
 import { SingleSelectField } from './SingleSelectField';
 
 export type FieldProps = { labelledBy: string; describedBy: string | undefined; invalid: boolean };
@@ -16,9 +17,19 @@ type QuestionStepProps = {
   error: string | null;
   onSubmit: (value: AnswerValue | null) => void;
   onEdit: () => void;
+  onDraftChange: (draft: DraftAnswer) => void;
 };
 
-export function QuestionStep({ step, stored, headingRef, busy, error, onSubmit, onEdit }: QuestionStepProps) {
+export function QuestionStep({
+  step,
+  stored,
+  headingRef,
+  busy,
+  error,
+  onSubmit,
+  onEdit,
+  onDraftChange,
+}: QuestionStepProps) {
   const [text, setText] = useState(() => (typeof stored === 'string' || typeof stored === 'number' ? String(stored) : ''));
   const [choices, setChoices] = useState<string[]>(() => (Array.isArray(stored) ? stored : []));
   const [localError, setLocalError] = useState<string | null>(null);
@@ -31,19 +42,20 @@ export function QuestionStep({ step, stored, headingRef, busy, error, onSubmit, 
   const describedBy = [helperText ? helperId : null, shownError ? errorId : null].filter(Boolean).join(' ') || undefined;
   const field: FieldProps = { labelledBy: titleId, describedBy, invalid: shownError !== null };
 
-  function edited() {
+  function edited(draft: DraftAnswer) {
     setLocalError(null);
     onEdit();
+    onDraftChange(draft);
   }
 
   function changeText(value: string) {
     setText(value);
-    edited();
+    edited(value);
   }
 
   function changeChoices(value: string[]) {
     setChoices(value);
-    edited();
+    edited(value);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -66,9 +78,11 @@ export function QuestionStep({ step, stored, headingRef, busy, error, onSubmit, 
           {helperText}
         </p>
       )}
-      {step.type === 'single-select' && <SingleSelectField step={step} value={text} onChange={changeText} {...field} />}
-      {step.type === 'multi-select' && <MultiSelectField step={step} value={choices} onChange={changeChoices} {...field} />}
-      {step.type === 'number' && <NumberField step={step} value={text} onChange={changeText} {...field} />}
+      <fieldset className="answer-fields" disabled={busy}>
+        {step.type === 'single-select' && <SingleSelectField step={step} value={text} onChange={changeText} {...field} />}
+        {step.type === 'multi-select' && <MultiSelectField step={step} value={choices} onChange={changeChoices} {...field} />}
+        {step.type === 'number' && <NumberField step={step} value={text} onChange={changeText} {...field} />}
+      </fieldset>
       {shownError && (
         <p id={errorId} className="form-error" role="alert">
           {shownError}

@@ -5,7 +5,7 @@ const RULES = [
   },
   {
     title: 'Filters',
-    text: 'Campaign is the first-touch utm_campaign stored on the session, version is the version the session is pinned to, run id tags traffic from one generator run.',
+    text: 'Campaign is the first-touch utm_campaign stored on the session, version is the version the session is pinned to, run id tags traffic from one generator run. "(no campaign)" selects sessions that arrived without a utm_campaign.',
   },
   {
     title: 'Reaching a step',
@@ -21,7 +21,7 @@ const RULES = [
   },
   {
     title: 'A/B comparison',
-    text: 'The primary metric is Started → CTA per variant inside one version. Difference is B − A in percentage points, lift is the difference divided by A, the p-value comes from a pooled two-proportion z-test and p < 0.05 counts as significant. Sessions with a forced ?variant= are QA traffic and are excluded unless the checkbox is on.',
+    text: 'The primary metric is Started → CTA per variant inside one version. Difference is B − A in percentage points, lift is the difference divided by A, the p-value comes from a pooled two-proportion z-test and p < 0.05 counts as significant. The test needs at least 5 expected CTA clicks and 5 expected non-clicks in each variant, where expected clicks are the sessions of the variant × the pooled Started → CTA rate of both variants; below that there is no p-value and the card says not enough data yet. Sessions with a forced ?variant= are QA traffic and are excluded unless the checkbox is on.',
   },
   {
     title: 'Versions and result mix',
@@ -29,7 +29,7 @@ const RULES = [
   },
   {
     title: 'Duplicates, repeats and order',
-    text: 'A re-sent event_id is stored once. Repeated views, Back clicks and late or shuffled events do not change any set of sessions, so they only show up in Views and Data quality. A rate is shown as — when its denominator is zero.',
+    text: 'A re-sent event_id is stored once. Repeated views, Back clicks and late or shuffled events do not change any set of sessions, so they only show up in Views and Data quality, which also counts raw events and unique sessions per event name. A rate is shown as — when its denominator is zero.',
   },
 ];
 

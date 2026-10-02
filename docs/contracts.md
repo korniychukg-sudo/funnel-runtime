@@ -201,4 +201,4 @@ Input: session rows, event rows (with arrival `seq`), parsed configs by version,
 
 ## Synthetic traffic
 
-`npm run generate -- --base-url http://localhost:3000 --sessions 150 --seed 42` drives real sessions through the HTTP API, tags them with a `runId`, sends events in batches with duplicates, a re-sent batch and shuffled order, and writes the expected aggregates to `expected-<runId>.json`. `npm run verify -- --base-url ... --run-id ...` compares them with `GET /api/analytics?run_id=...`.
+`npm run generate -- --base-url http://localhost:3000 --sessions 150 --seed 42` drives real sessions through the HTTP API, tags them with a `runId`, sends events in batches with duplicates, a re-sent batch and shuffled order, and writes the expected aggregates to `expected-<runId>.json`. `npm run verify -- --base-url ... --expected expected-<runId>.json` compares them with `GET /api/analytics?run_id=...`.

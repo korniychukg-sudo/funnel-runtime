@@ -1,5 +1,38 @@
-import type { DataQuality } from '../../shared/api';
+import type { DataQuality, EventCount } from '../../shared/api';
 import { formatCount, plural } from './format';
+
+function EventCounts({ rows }: { rows: EventCount[] }) {
+  if (rows.length === 0) return <p className="muted hint">No events stored for this view.</p>;
+  return (
+    <div className="table-scroll event-counts">
+      <table className="data-table">
+        <caption>Events by name, in this view</caption>
+        <thead>
+          <tr>
+            <th scope="col">Event</th>
+            <th scope="col" className="num">
+              Events
+            </th>
+            <th scope="col" className="num">
+              Sessions
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.name}>
+              <th scope="row" className="mono">
+                {row.name}
+              </th>
+              <td className="num">{formatCount(row.events)}</td>
+              <td className="num">{formatCount(row.sessions)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function DataQualityPanel({ quality }: { quality: DataQuality }) {
   const items = [
@@ -34,6 +67,7 @@ export function DataQualityPanel({ quality }: { quality: DataQuality }) {
           </div>
         ))}
       </dl>
+      <EventCounts rows={quality.events} />
     </section>
   );
 }

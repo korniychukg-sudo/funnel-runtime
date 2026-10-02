@@ -135,6 +135,18 @@
   color: var(--text-muted);
 }
 
+.answer-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.answer-fields:disabled .option,
+.answer-fields:disabled .number-field {
+  cursor: progress;
+}
+
 .options {
   display: grid;
   gap: 10px;

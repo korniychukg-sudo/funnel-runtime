@@ -126,6 +126,8 @@ export type AdminOverview = {
 
 export type Rate = number | null;
 
+export const NO_CAMPAIGN = '(none)';
+
 export type AnalyticsQuery = {
   utmCampaign?: string;
   version?: number;
@@ -182,6 +184,8 @@ export type FunnelBreakdown = {
 
 export type ResultMixRow = { version: number; variant: string; resultId: string; sessions: number };
 
+export type EventCount = { name: string; events: number; sessions: number };
+
 export type DataQuality = {
   eventsStored: number;
   duplicatesDropped: number;
@@ -190,6 +194,7 @@ export type DataQuality = {
   backClicks: number;
   outOfOrderEvents: number;
   sessionsWithOutOfOrderEvents: number;
+  events: EventCount[];
 };
 
 export type AnalyticsResponse = {

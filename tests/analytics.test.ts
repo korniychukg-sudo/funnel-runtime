@@ -6,7 +6,7 @@ import {
   type AnalyticsSessionRow,
   type IngestTotals,
 } from '../src/server/analytics';
-import type { AnalyticsQuery, AnalyticsResponse, FunnelBreakdown } from '../src/shared/api';
+import { NO_CAMPAIGN, type AnalyticsQuery, type AnalyticsResponse, type FunnelBreakdown } from '../src/shared/api';
 import { parseFunnelConfig, type FunnelConfig } from '../src/shared/config';
 
 function loadConfig(path: string): FunnelConfig {
@@ -89,6 +89,12 @@ const resultShown = (resultId: string): Scripted[] => [
 ];
 
 const ctaClick = (resultId: string): Scripted => ['cta_clicked', 'result', { result_id: resultId, action: 'expand_recommendation' }];
+
+const expanded = (resultId: string): Scripted => [
+  'recommendation_expanded',
+  'result',
+  { result_id: resultId, action: 'expand_recommendation', source: 'result_cta' },
+];
 
 const V1_A_REMOTE = ['team_size', 'work_mode', 'priorities', 'timezone_span', 'async_maturity', 'tool_count'];
 const V1_B_REMOTE = ['work_mode', 'timezone_span', 'team_size', 'async_maturity', 'priorities', 'tool_count'];
@@ -382,9 +388,28 @@ describe('population filters', () => {
     expect(analyze(sessions, events, { utmCampaign: 'spring', version: 1 }).totals).toMatchObject({ started: 1, ctaClicked: 1 });
   });
 
+  it('filters sessions without a utm_campaign with the (none) sentinel', () => {
+    const response = analyze(sessions, events, { utmCampaign: NO_CAMPAIGN });
+    expect(response.totals).toMatchObject({ started: 1, reachedResult: 0 });
+    expect(response.versions.map((v) => [v.version, v.started])).toEqual([[3, 1]]);
+    expect(response.funnels.map((f) => [f.version, f.variant, f.started])).toEqual([
+      [3, 'A', 0],
+      [3, 'B', 1],
+    ]);
+    expect(response.filters.utmCampaign).toBe('(none)');
+    expect(analyze(sessions, events, { utmCampaign: NO_CAMPAIGN, version: 1 }).totals.started).toBe(0);
+  });
+
+  it('lists (none) last among the campaigns only when a session has no campaign', () => {
+    expect(analyze(sessions, events).available.campaigns).toEqual(['spring', 'summer', '(none)']);
+    expect(analyze([springV1, summerV1], events).available.campaigns).toEqual(['spring', 'summer']);
+    const literal = session('literal', { utmCampaign: NO_CAMPAIGN });
+    expect(analyze([...sessions, literal], events).available.campaigns).toEqual(['spring', 'summer', '(none)']);
+  });
+
   it('keeps available filters and ingest totals global while scoping stored events', () => {
     const response = analyze(sessions, events, { utmCampaign: 'summer' }, ingest);
-    expect(response.available).toEqual({ campaigns: ['spring', 'summer'], versions: [1, 3] });
+    expect(response.available).toEqual({ campaigns: ['spring', 'summer', '(none)'], versions: [1, 3] });
     expect(response.dataQuality).toMatchObject({ eventsStored: summerEvents.length, duplicatesDropped: 7, rejectedEvents: 2 });
   });
 });
@@ -429,6 +454,26 @@ describe('experiments', () => {
 
   it('has no p-value when neither variant converts', () => {
     expect(abTest(0, 10, 0, 10)).toMatchObject({ absoluteDiff: 0, relativeLift: null, pValue: null, significant: null });
+    expect(abTest(10, 10, 10, 10)).toMatchObject({ absoluteDiff: 0, relativeLift: 0, pValue: null, significant: null });
+  });
+
+  it('needs 5 expected clicks and 5 expected non-clicks per variant under the pooled rate', () => {
+    const fewClicks = abTest(2, 20, 7, 20);
+    expect(fewClicks.absoluteDiff).toBeCloseTo(0.25, 12);
+    expect(fewClicks.relativeLift).toBeCloseTo(2.5, 12);
+    expect(fewClicks).toMatchObject({ pValue: null, significant: null });
+
+    const atThreshold = abTest(2, 20, 8, 20);
+    expect(atThreshold.pValue).toBeCloseTo(0.028460, 5);
+    expect(atThreshold.significant).toBe(true);
+
+    expect(abTest(13, 20, 18, 20)).toMatchObject({ pValue: null, significant: null });
+    expect(abTest(12, 20, 18, 20).pValue).not.toBeNull();
+
+    const smallArm = abTest(3, 10, 30, 100);
+    expect(smallArm.absoluteDiff).toBeCloseTo(0, 12);
+    expect(smallArm).toMatchObject({ pValue: null, significant: null });
+    expect(abTest(5, 20, 25, 100).pValue).toBeCloseTo(1, 6);
   });
 
   const hashA1 = session('hash-a1');
@@ -468,6 +513,34 @@ describe('experiments', () => {
     ]);
     expect(response.filters.includeOverrides).toBe(true);
     expect(response.totals.started).toBe(5);
+  });
+});
+
+describe('event counts', () => {
+  it('counts raw events and unique sessions per event name over the population, sorted by name', () => {
+    const v1Click = session('v1-click');
+    const v3Click = session('v3-click', { version: 3 });
+    const v3Twice = session('v3-twice', { version: 3, variant: 'B' });
+    const events = [
+      ...track(v1Click, [viewed('intro'), ...resultShown('balanced'), ctaClick('balanced')]),
+      ...track(v3Click, [...resultShown('balanced'), ctaClick('balanced'), expanded('balanced')]),
+      ...track(v3Twice, [...resultShown('balanced'), ctaClick('balanced'), expanded('balanced'), expanded('balanced')]),
+    ];
+    const response = analyze([v1Click, v3Click, v3Twice], events);
+
+    expect(response.dataQuality.events).toEqual([
+      { name: 'cta_clicked', events: 3, sessions: 3 },
+      { name: 'recommendation_expanded', events: 3, sessions: 2 },
+      { name: 'result_viewed', events: 3, sessions: 3 },
+      { name: 'session_started', events: 3, sessions: 3 },
+      { name: 'step_viewed', events: 4, sessions: 3 },
+    ]);
+    const counted = response.dataQuality.events.reduce((sum, row) => sum + row.events, 0);
+    expect(counted).toBe(response.dataQuality.eventsStored);
+
+    const v1Only = analyze([v1Click, v3Click, v3Twice], events, { version: 1 });
+    expect(v1Only.dataQuality.events.map((row) => row.name)).not.toContain('recommendation_expanded');
+    expect(analyze([v1Click], events, { utmCampaign: 'nobody' }).dataQuality.events).toEqual([]);
   });
 });
 
