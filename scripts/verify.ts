@@ -79,6 +79,7 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  const refused = error?.cause?.code === 'ECONNREFUSED' || error?.code === 'ECONNREFUSED';
+  console.error(refused ? 'Cannot reach the server. Start it first (npm start or npm run dev) or pass --base-url.' : error);
   process.exit(1);
 });

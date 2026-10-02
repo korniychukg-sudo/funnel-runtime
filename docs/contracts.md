@@ -61,7 +61,7 @@ All bodies are JSON. Errors use `ApiError { error, message, details? }`.
 - `answers`: the step must be in the sequence, interactive, visible, and every visible interactive step before it must hold a valid answer (`canNavigateTo`). The value is validated with `validateAnswer`; the normalised value is stored. After saving, `currentStepId = nextStepId(...) ?? resultStepId`. Changing any answer clears a stored `result_id`.
 - `navigate`: used for intro → first question and for Back. Allowed when `canNavigateTo` is true; the result step additionally requires `isComplete`.
 - `result`: requires `isComplete`; computes and stores `result_id`, sets `currentStepId` to the result step.
-- Admin endpoints require header `x-admin-token` when the server runs with `ADMIN_TOKEN` set; otherwise they are open (local development, and the public demo on purpose). With a token set, `/admin` asks for it.
+- Admin endpoints require header `x-admin-token` when the server runs with `ADMIN_TOKEN` set; otherwise they are open (local development only; the public demo sets a token). With a token set, `/admin` asks for it.
 - JSON bodies: `__proto__` and `constructor.prototype` keys are stripped before validation instead of failing the request with 400, so a poisoned event item is handled on its own like any other item. An empty body with content-type `application/json` is treated as no body.
 - Static files and SPA fallback (`@fastify/static` ^10.1.5, fastify 5.x): `index.html` is served only for `GET`/`HEAD` requests outside `/api` and `/assets` whose last path segment has no file extension. Everything else that matches no route, including missing files under `/assets`, `/favicon.ico` and `POST` to client routes, returns JSON `404 not_found`.
 
