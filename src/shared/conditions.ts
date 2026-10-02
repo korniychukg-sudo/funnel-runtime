@@ -58,21 +58,21 @@ export function evaluateCondition(cond: Condition, answers: Answers): boolean {
   return evaluateLeaf(cond, answers);
 }
 
-export function evaluateTri(cond: Condition, answers: Answers): Tri {
+export function evaluateTri(cond: Condition, answers: Answers, isPending: (answer: string) => boolean = () => true): Tri {
   if ('all' in cond) {
-    const parts = cond.all.map((c) => evaluateTri(c, answers));
+    const parts = cond.all.map((c) => evaluateTri(c, answers, isPending));
     if (parts.includes(false)) return false;
     return parts.includes('unknown') ? 'unknown' : true;
   }
   if ('any' in cond) {
-    const parts = cond.any.map((c) => evaluateTri(c, answers));
+    const parts = cond.any.map((c) => evaluateTri(c, answers, isPending));
     if (parts.includes(true)) return true;
     return parts.includes('unknown') ? 'unknown' : false;
   }
   if ('not' in cond) {
-    const inner = evaluateTri(cond.not, answers);
+    const inner = evaluateTri(cond.not, answers, isPending);
     return inner === 'unknown' ? 'unknown' : !inner;
   }
-  if (cond.operator !== 'answered' && !isAnswered(answers[cond.answer])) return 'unknown';
+  if (!isAnswered(answers[cond.answer]) && isPending(cond.answer)) return 'unknown';
   return evaluateLeaf(cond, answers);
 }

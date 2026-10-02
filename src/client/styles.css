@@ -124,7 +124,12 @@ a {
 
 .btn-danger {
   background: var(--danger);
-  color: #fff;
+  color: var(--bg);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger);
+  filter: brightness(0.92);
 }
 
 .btn-small {

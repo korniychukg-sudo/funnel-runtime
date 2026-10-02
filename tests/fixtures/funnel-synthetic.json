@@ -1,0 +1,271 @@
+{
+  "schemaVersion": "1.0",
+  "funnelId": "commute-planner",
+  "version": 7,
+  "status": "draft",
+  "locale": "en-AU",
+  "title": "Plan a calmer commute",
+  "description": "A synthetic funnel that exercises chained conditions and every operator family.",
+  "releaseNote": "Synthetic fixture for engine tests.",
+  "owner": "tests",
+  "progress": {
+    "countVisibleOnly": true,
+    "excludeTypes": ["info", "result"]
+  },
+  "experiment": {
+    "id": "commute-planner-order",
+    "variants": {
+      "A": {
+        "weight": 50,
+        "stepSequence": ["welcome", "distance_km", "transport", "bike_type", "bike_storage", "concerns", "rain_plan", "result"]
+      },
+      "B": {
+        "weight": 50,
+        "stepSequence": ["welcome", "transport", "bike_type", "bike_storage", "concerns", "distance_km", "rain_plan", "result"],
+        "stepOverrides": {
+          "concerns": {
+            "content": {
+              "title": "What would make you skip the trip?"
+            }
+          }
+        },
+        "resultOverrides": {
+          "long_ride": {
+            "title": "Your ride is long enough to plan around"
+          }
+        }
+      }
+    }
+  },
+  "steps": {
+    "welcome": {
+      "id": "welcome",
+      "type": "info",
+      "content": {
+        "title": "Plan a calmer commute",
+        "primaryActionLabel": "Start"
+      }
+    },
+    "distance_km": {
+      "id": "distance_km",
+      "type": "number",
+      "content": {
+        "title": "How far is your one-way trip?",
+        "helperText": "Round to the nearest half kilometre."
+      },
+      "input": {
+        "name": "distance_km",
+        "min": 0,
+        "max": 60,
+        "step": 0.5,
+        "unit": "km"
+      },
+      "validation": {
+        "required": true,
+        "messages": {
+          "required": "Enter the distance.",
+          "step": "Use half-kilometre steps.",
+          "max": "For this demo, enter up to 60 km."
+        }
+      }
+    },
+    "transport": {
+      "id": "transport",
+      "type": "single-select",
+      "content": {
+        "title": "How do you usually travel?"
+      },
+      "input": {
+        "name": "transport",
+        "options": [
+          { "value": "walk", "label": "On foot" },
+          { "value": "bike", "label": "By bike" },
+          { "value": "car", "label": "By car" },
+          { "value": "transit", "label": "Public transport" }
+        ]
+      },
+      "validation": {
+        "required": true
+      }
+    },
+    "bike_type": {
+      "id": "bike_type",
+      "type": "single-select",
+      "content": {
+        "title": "What kind of bike do you ride?"
+      },
+      "input": {
+        "name": "bike_type",
+        "options": [
+          { "value": "city", "label": "City bike" },
+          { "value": "road", "label": "Road bike" },
+          { "value": "ebike", "label": "E-bike" },
+          { "value": "cargo", "label": "Cargo bike" }
+        ]
+      },
+      "validation": {
+        "required": true
+      },
+      "visibleWhen": { "answer": "transport", "operator": "eq", "value": "bike" }
+    },
+    "bike_storage": {
+      "id": "bike_storage",
+      "type": "single-select",
+      "content": {
+        "title": "Where does the bike stay during the day?"
+      },
+      "input": {
+        "name": "bike_storage",
+        "options": [
+          { "value": "indoor", "label": "Indoors" },
+          { "value": "locked_shed", "label": "Locked shed" },
+          { "value": "street", "label": "On the street" }
+        ]
+      },
+      "validation": {
+        "required": true
+      },
+      "visibleWhen": { "answer": "bike_type", "operator": "in", "value": ["ebike", "cargo"] }
+    },
+    "concerns": {
+      "id": "concerns",
+      "type": "multi-select",
+      "content": {
+        "title": "What worries you about the trip?",
+        "helperText": "Choose one or two."
+      },
+      "input": {
+        "name": "concerns",
+        "options": [
+          { "value": "weather", "label": "Weather" },
+          { "value": "cost", "label": "Cost" },
+          { "value": "safety", "label": "Safety" },
+          { "value": "time", "label": "Time" }
+        ]
+      },
+      "validation": {
+        "required": true,
+        "minSelections": 1,
+        "maxSelections": 2
+      }
+    },
+    "rain_plan": {
+      "id": "rain_plan",
+      "type": "single-select",
+      "content": {
+        "title": "What do you do when it rains?"
+      },
+      "input": {
+        "name": "rain_plan",
+        "options": [
+          { "value": "wait", "label": "Wait it out" },
+          { "value": "switch", "label": "Switch to another mode" },
+          { "value": "go_anyway", "label": "Go anyway" }
+        ]
+      },
+      "validation": {
+        "required": true
+      },
+      "visibleWhen": {
+        "all": [
+          { "answer": "concerns", "operator": "contains", "value": "weather" },
+          {
+            "any": [
+              { "answer": "distance_km", "operator": "gt", "value": 5 },
+              { "not": { "answer": "transport", "operator": "in", "value": ["car", "transit"] } }
+            ]
+          }
+        ]
+      }
+    },
+    "result": {
+      "id": "result",
+      "type": "result",
+      "content": {
+        "loadingTitle": "Planning your commute…"
+      }
+    }
+  },
+  "resultRules": [
+    {
+      "resultId": "secure_storage",
+      "when": { "answer": "bike_storage", "operator": "eq", "value": "street" }
+    },
+    {
+      "resultId": "long_ride",
+      "when": {
+        "all": [
+          { "answer": "transport", "operator": "eq", "value": "bike" },
+          { "answer": "distance_km", "operator": "gt", "value": 15 }
+        ]
+      }
+    },
+    {
+      "resultId": "walk_it",
+      "when": {
+        "all": [
+          { "answer": "distance_km", "operator": "lt", "value": 2 },
+          { "answer": "transport", "operator": "not_in", "value": ["car", "transit"] }
+        ]
+      }
+    },
+    {
+      "resultId": "transit_routine",
+      "when": {
+        "all": [
+          { "answer": "transport", "operator": "eq", "value": "transit" },
+          { "answer": "concerns", "operator": "not_contains", "value": "time" }
+        ]
+      }
+    }
+  ],
+  "defaultResultId": "steady_routine",
+  "results": {
+    "secure_storage": {
+      "id": "secure_storage",
+      "title": "Secure the bike first",
+      "summary": "A valuable bike parked on the street is the weakest part of this commute.",
+      "recommendations": ["Look for a locked bike room near work.", "Use two different lock types."],
+      "cta": { "label": "See storage options", "action": "expand_recommendation" }
+    },
+    "long_ride": {
+      "id": "long_ride",
+      "title": "Long ride",
+      "summary": "The distance is long enough that the route and the schedule need a plan.",
+      "recommendations": ["Pick a quieter route.", "Keep a change of clothes at work."],
+      "cta": { "label": "See the route checklist", "action": "expand_recommendation" }
+    },
+    "walk_it": {
+      "id": "walk_it",
+      "title": "Walk it",
+      "summary": "The trip is short enough to walk on most days.",
+      "recommendations": ["Keep an umbrella at the door."],
+      "cta": { "label": "See walking tips", "action": "expand_recommendation" }
+    },
+    "transit_routine": {
+      "id": "transit_routine",
+      "title": "Transit routine",
+      "summary": "A fixed transit routine keeps the trip predictable.",
+      "recommendations": ["Buy a period pass if you travel most days."],
+      "cta": { "label": "See pass options", "action": "expand_recommendation" }
+    },
+    "steady_routine": {
+      "id": "steady_routine",
+      "title": "Steady routine",
+      "summary": "No single change stands out, so start with a consistent routine.",
+      "recommendations": ["Leave at the same time every day."],
+      "cta": { "label": "See routine tips", "action": "expand_recommendation" }
+    }
+  },
+  "events": {
+    "allowed": [
+      { "name": "session_started", "properties": [] },
+      { "name": "step_viewed", "properties": ["step_type", "visible_step_index", "visible_step_count"] },
+      { "name": "answer_submitted", "properties": ["answer_kind"] },
+      { "name": "step_completed", "properties": ["next_step_id"] },
+      { "name": "back_clicked", "properties": ["destination_step_id"] },
+      { "name": "result_viewed", "properties": ["result_id"] },
+      { "name": "cta_clicked", "properties": ["result_id", "action"] }
+    ]
+  }
+}

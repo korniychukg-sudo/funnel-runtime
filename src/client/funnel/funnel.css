@@ -1,0 +1,491 @@
+.funnel-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 0 16px;
+}
+
+.funnel-topbar,
+.funnel-main {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.funnel-topbar {
+  min-height: 21px;
+  padding-top: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.funnel-main {
+  flex: 1;
+  padding: 16px 0 32px;
+}
+
+.funnel-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 6px);
+  box-shadow: var(--shadow);
+  padding: 24px 20px 28px;
+}
+
+.funnel-notice {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 15px;
+}
+
+.step-enter {
+  animation: step-enter 0.28s ease-out both;
+}
+
+.step-header {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.step-header-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+}
+
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  margin-left: -8px;
+  padding: 0 12px 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.back-button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.progress-label {
+  margin-left: auto;
+  font-size: 14px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.step-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+.step-title:focus {
+  outline: none;
+}
+
+.step-lead {
+  margin: 14px 0 0;
+  font-size: 17px;
+  color: var(--text-muted);
+}
+
+.step-helper {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+}
+
+.options {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.option:hover {
+  border-color: var(--accent);
+}
+
+.option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.option:has(input:focus-visible) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.option.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.option.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.option.is-disabled:hover {
+  border-color: var(--border);
+}
+
+.option-mark {
+  position: relative;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.option-mark.is-checkbox {
+  border-radius: 6px;
+}
+
+.option.is-selected .option-mark {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.option.is-selected .option-mark::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-contrast);
+}
+
+.option.is-selected .option-mark.is-checkbox::after {
+  width: 6px;
+  height: 11px;
+  margin-top: 3px;
+  border: solid var(--accent-contrast);
+  border-width: 0 2px 2px 0;
+  border-radius: 0;
+  background: none;
+  transform: rotate(45deg);
+}
+
+.option-label {
+  font-weight: 500;
+}
+
+.selection-count {
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.selection-count.is-full {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.number-field {
+  display: flex;
+  align-items: center;
+  max-width: 280px;
+  margin-top: 24px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.number-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.number-field.is-invalid {
+  border-color: var(--danger);
+}
+
+.number-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 0;
+  background: transparent;
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.number-field input::placeholder {
+  color: var(--text-muted);
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+.number-unit {
+  padding-right: 16px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.form-error {
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 15px;
+  font-weight: 500;
+  animation: fade-in 0.2s ease-out;
+}
+
+.step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.btn-large {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 28px;
+  font-size: 17px;
+}
+
+.btn[aria-disabled='true'],
+.back-button[aria-disabled='true'] {
+  cursor: progress;
+}
+
+.btn:focus-visible,
+.back-button:focus-visible,
+.start-over:focus-visible,
+.action-list:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.action-list {
+  margin-top: 24px;
+  padding: 20px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  animation: step-enter 0.3s ease-out both;
+}
+
+.action-list:focus {
+  outline: none;
+}
+
+.action-list ol {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: action;
+}
+
+.action-list li {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 12px;
+  align-items: start;
+  counter-increment: action;
+}
+
+.action-list li::before {
+  content: counter(action);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.start-over {
+  display: inline-block;
+  margin-top: 24px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.start-over:hover {
+  color: var(--text);
+}
+
+.skeleton {
+  display: grid;
+  gap: 14px;
+}
+
+.result-skeleton {
+  margin-top: 24px;
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--border) 50%, var(--surface-2) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-line.is-short {
+  width: 40%;
+}
+
+.skeleton-line.is-title {
+  width: 85%;
+  height: 28px;
+  margin-bottom: 8px;
+}
+
+.skeleton-line.is-option {
+  height: 56px;
+  border-radius: var(--radius);
+}
+
+.funnel-footer {
+  display: flex;
+  justify-content: center;
+  padding: 0 0 24px;
+}
+
+.session-chip {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: center;
+}
+
+@keyframes step-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (min-width: 560px) {
+  .funnel-main {
+    padding-top: 32px;
+  }
+
+  .funnel-card {
+    padding: 36px 40px 40px;
+  }
+
+  .step-title {
+    font-size: 30px;
+  }
+
+  .btn-large {
+    width: auto;
+    min-width: 180px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step-enter,
+  .action-list,
+  .form-error,
+  .skeleton-line {
+    animation: none;
+  }
+
+  .progress-fill,
+  .option,
+  .option-mark {
+    transition: none;
+  }
+}

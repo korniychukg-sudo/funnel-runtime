@@ -1,6 +1,7 @@
 import { evaluateCondition, evaluateTri, type Answers, type AnswerValue } from './conditions';
-import { isInteractive, type FunnelConfig, type FunnelResult, type InteractiveStep, type Step } from './config';
+import type { FunnelConfig, FunnelResult, InteractiveStep, Step } from './config';
 import { deepMerge } from './merge';
+import { isInteractive } from './steps';
 
 export type ResolvedFunnel = {
   funnelId: string;
@@ -108,12 +109,17 @@ export type Progress = { index: number | null; count: number };
 
 export function progressFor(funnel: ResolvedFunnel, answers: Answers, stepId: string): Progress {
   const effective = effectiveAnswers(funnel, answers);
-  const counted = funnel.sequence.filter((id) => {
+  const hiddenAnswers = new Set<string>();
+  const counted: string[] = [];
+  for (const id of funnel.sequence) {
     const step = funnel.steps[id];
-    if (funnel.progress.excludeTypes.includes(step.type)) return false;
-    if (!step.visibleWhen || !funnel.progress.countVisibleOnly) return true;
-    return evaluateTri(step.visibleWhen, effective) !== false;
-  });
+    const visibility =
+      !step.visibleWhen || !funnel.progress.countVisibleOnly
+        ? true
+        : evaluateTri(step.visibleWhen, effective, (answer) => !hiddenAnswers.has(answer));
+    if (visibility === false && isInteractive(step)) hiddenAnswers.add(step.input.name);
+    if (visibility !== false && !funnel.progress.excludeTypes.includes(step.type)) counted.push(id);
+  }
   const position = counted.indexOf(stepId);
   return { index: position >= 0 ? position + 1 : null, count: counted.length };
 }

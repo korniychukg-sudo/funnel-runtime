@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { deepMerge } from './merge';
+import { isInteractive } from './steps';
 
 export const OPERATORS = [
   'eq',
@@ -184,11 +185,7 @@ export type InteractiveStep = Extract<Step, { input: unknown }>;
 export type FunnelResult = z.infer<typeof resultSchema>;
 export type Variant = z.infer<typeof variantSchema>;
 
-export const INTERACTIVE_TYPES: StepType[] = ['single-select', 'multi-select', 'number'];
-
-export function isInteractive(step: Step): step is InteractiveStep {
-  return step.type === 'single-select' || step.type === 'multi-select' || step.type === 'number';
-}
+export { INTERACTIVE_TYPES, isInteractive } from './steps';
 
 export type ConfigIssue = { path: string; message: string };
 
